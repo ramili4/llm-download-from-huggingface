@@ -16,59 +16,57 @@ pipeline {
                 checkout scm
             }
         }
-       
+
         stage('Download Model') {
             steps {
                 script {
                     def modelPath = "models/${params.MODEL_NAME}"
                     sh(script: "mkdir -p ${modelPath}", label: 'Create model directory')
-                    
-                    // Use withCredentials to securely handle the API token
-                    withCredentials([string(credentialsId: 'HUGGINGFACE_API_TOKEN', variable: 'HF_TOKEN')]) {
-                        // Use httpRequest for more secure and controlled API calls
-                        def filesResponse = httpRequest(
-                            url: "https://huggingface.co/api/models/${params.MODEL_NAME}/tree/${params.REVISION}",
-                            httpMode: 'GET',
-                            customHeaders: [[name: 'Authorization', value: "Bearer ${HF_TOKEN}"]],
-                            consoleLogResponseBody: false,
-                            quiet: true
+
+                    echo "Using Hugging Face API Token: ${env.HUGGINGFACE_API_TOKEN ? '✔️ Loaded' : '❌ Not Found'}"
+
+                    // API-запрос для получения списка файлов модели
+                    def filesResponse = httpRequest(
+                        url: "${HUGGINGFACE_URL}/api/models/${params.MODEL_NAME}/tree/${params.REVISION}",
+                        httpMode: 'GET',
+                        customHeaders: [[name: 'Authorization', value: "Bearer ${env.HUGGINGFACE_API_TOKEN}"]],
+                        consoleLogResponseBody: false,
+                        quiet: true
+                    )
+
+                    def files = []
+                    def jsonText = filesResponse.content
+                    def filePattern = ~/"path":"([^"]+)","type":"file"/
+                    def matcher = filePattern.matcher(jsonText)
+
+                    while (matcher.find()) {
+                        def file = matcher.group(1)
+                        if (file != '.gitattributes') {
+                            files.add(file)
+                        }
+                    }
+
+                    if (files.isEmpty()) {
+                        error "Не удалось найти файлы модели ${params.MODEL_NAME} с ревизией ${params.REVISION}"
+                    }
+
+                    for (file in files) {
+                        def url = "${HUGGINGFACE_URL}/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
+                        def outputPath = "${modelPath}/${file}"
+
+                        echo "Downloading: ${file}"
+                        sh(
+                            script: """
+                                wget -q --header="Authorization: Bearer ${env.HUGGINGFACE_API_TOKEN}" "${url}" -O "${outputPath}" || \
+                                curl -sSL -H "Authorization: Bearer ${env.HUGGINGFACE_API_TOKEN}" "${url}" -o "${outputPath}"
+                            """,
+                            label: "Download ${file}"
                         )
-                        
-                        // Parse files manually to avoid JsonSlurperClassic
-                        def files = []
-                        def jsonText = filesResponse.content
-                        def filePattern = ~/"path":"([^"]+)","type":"file"/
-                        def matcher = filePattern.matcher(jsonText)
-                        
-                        while (matcher.find()) {
-                            def file = matcher.group(1)
-                            if (file != '.gitattributes') {
-                                files.add(file)
-                            }
-                        }
-                        
-                        if (files.isEmpty()) {
-                            error "Не удалось найти файлы модели ${params.MODEL_NAME} с ревизией ${params.REVISION}"
-                        }
-                        
-                        for (file in files) {
-                            def url = "https://huggingface.co/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
-                            def outputPath = "${modelPath}/${file}"
-                            
-                            // Download with secure credential handling
-                            sh(
-                                script: """
-                                    wget -q --header="Authorization: Bearer ${HF_TOKEN}" "${url}" -O "${outputPath}" || \
-                                    curl -sSL -H "Authorization: Bearer ${HF_TOKEN}" "${url}" -o "${outputPath}"
-                                """,
-                                label: "Download ${file}"
-                            )
-                        }
                     }
                 }
             }
         }
-        
+
         stage('Сохраняем модель в MinIO') {
             steps {
                 script {
