@@ -6,7 +6,7 @@ pipeline {
     }
 
     environment {
-        MINIO_URL = "http://minio-server:9000"
+        MINIO_URL = "http://localhost:9000"
         BUCKET_NAME = "models"
         HUGGINGFACE_URL = "https://huggingface.co"
         HUGGINGFACE_API_TOKEN = credentials('huggingface-token')
