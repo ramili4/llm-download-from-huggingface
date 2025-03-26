@@ -1,4 +1,4 @@
 {
-    "model_name": "mobilenetv2",
-    "model_type": "onnx"
+    "model_name": "google/mobilenet_v2_1.0_224",
+    "model_type": "tensorflow"
 }
