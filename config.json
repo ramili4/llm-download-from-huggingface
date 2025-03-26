@@ -1,0 +1,4 @@
+{
+    "model_name": "bert-base-uncased",
+    "model_type": "pytorch"
+}
