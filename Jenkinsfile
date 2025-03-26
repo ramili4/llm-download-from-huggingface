@@ -21,37 +21,48 @@ pipeline {
             steps {
                 script {
                     def modelPath = "models/${params.MODEL_NAME}"
-                    sh "mkdir -p ${modelPath}"
+                    sh(script: "mkdir -p ${modelPath}", label: 'Create model directory')
                     
-                    // Use Hugging Face API to list files
-                    def filesResponse = sh(
-                        script: """
-                            curl -s -H "Authorization: Bearer ${HUGGINGFACE_API_TOKEN}" \
-                            "https://huggingface.co/api/models/${params.MODEL_NAME}/tree/${params.REVISION}"
-                        """,
-                        returnStdout: true
-                    ).trim()
-                    
-                    def files = new groovy.json.JsonSlurperClassic().parseText(filesResponse)
-                        .findAll { it.type == 'file' && it.path != '.gitattributes' }
-                        .collect { it.path }
-                    
-                    if (files.isEmpty()) {
-                        error "Не удалось найти файлы модели ${params.MODEL_NAME} с ревизией ${params.REVISION}"
-                    }
-                    
-                    for (file in files) {
-                        def url = "https://huggingface.co/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
-                        def outputPath = "${modelPath}/${file}"
-                        def exitCode = sh(
-                            script: """
-                                wget --header="Authorization: Bearer ${HUGGINGFACE_API_TOKEN}" -q "${url}" -O "${outputPath}" || \
-                                curl -H "Authorization: Bearer ${HUGGINGFACE_API_TOKEN}" -sSL "${url}" -o "${outputPath}"
-                            """,
-                            returnStatus: true
+                    // Use withCredentials to securely handle the API token
+                    withCredentials([string(credentialsId: 'HUGGINGFACE_API_TOKEN', variable: 'HF_TOKEN')]) {
+                        // Use httpRequest for more secure and controlled API calls
+                        def filesResponse = httpRequest(
+                            url: "https://huggingface.co/api/models/${params.MODEL_NAME}/tree/${params.REVISION}",
+                            httpMode: 'GET',
+                            customHeaders: [[name: 'Authorization', value: "Bearer ${HF_TOKEN}"]],
+                            consoleLogResponseBody: false,
+                            quiet: true
                         )
-                        if (exitCode != 0) {
-                            error "Ошибка при загрузке ${file} из ${url}"
+                        
+                        // Parse files manually to avoid JsonSlurperClassic
+                        def files = []
+                        def jsonText = filesResponse.content
+                        def filePattern = ~/"path":"([^"]+)","type":"file"/
+                        def matcher = filePattern.matcher(jsonText)
+                        
+                        while (matcher.find()) {
+                            def file = matcher.group(1)
+                            if (file != '.gitattributes') {
+                                files.add(file)
+                            }
+                        }
+                        
+                        if (files.isEmpty()) {
+                            error "Не удалось найти файлы модели ${params.MODEL_NAME} с ревизией ${params.REVISION}"
+                        }
+                        
+                        for (file in files) {
+                            def url = "https://huggingface.co/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
+                            def outputPath = "${modelPath}/${file}"
+                            
+                            // Download with secure credential handling
+                            sh(
+                                script: """
+                                    wget -q --header="Authorization: Bearer ${HF_TOKEN}" "${url}" -O "${outputPath}" || \
+                                    curl -sSL -H "Authorization: Bearer ${HF_TOKEN}" "${url}" -o "${outputPath}"
+                                """,
+                                label: "Download ${file}"
+                            )
                         }
                     }
                 }
