@@ -23,11 +23,11 @@ pipeline {
                     def modelPath = "models/${params.MODEL_NAME}"
                     sh "mkdir -p ${modelPath}"
                     def files = sh(
-                        script: '''
-                            curl -sL "https://huggingface.co/'''+params.MODEL_NAME+'''/tree/'''+params.REVISION+'''" | \
-                            awk -F\" \'/href="\\/.*'''+params.MODEL_NAME+'''\\/blob\\/'''+params.REVISION+'''\\/\/ {print $2}\' | \
-                            grep -oE \'[^/]+$\' | grep -v ^\\.gitattributes$
-                        ''',
+                        script: """
+                            curl -sL "https://huggingface.co/${params.MODEL_NAME}/tree/${params.REVISION}" | \
+                            awk -F\\" '/href=\\"\\/.*('"${params.MODEL_NAME}"')\\/blob\\/('"${params.REVISION}"')\\/\\//{print \$2}' | \
+                            grep -oE '[^/]+\$' | grep -v '^\\.gitattributes\$'
+                        """,
                         returnStdout: true
                     ).trim().split('\n')
                     if (files.isEmpty() || files[0] == '') {
