@@ -16,37 +16,38 @@ pipeline {
                 checkout scm
             }
         }
-        stage('Download Model') {
-            steps {
-                script {
-                    def modelPath = "models/${params.MODEL_NAME}"
-                    sh "mkdir -p ${modelPath}"
-        
-                    def files = sh(
+       
+    stage('Download Model') {
+        steps {
+            script {
+                def modelPath = "models/${params.MODEL_NAME}"
+                sh "mkdir -p ${modelPath}"
+    
+                def files = sh(
+                    script: """
+                        curl -sL "${HUGGINGFACE_URL}/${params.MODEL_NAME}/tree/${params.REVISION}" | \
+                        awk -F'"' '/href=\\"/${params.MODEL_NAME}/blob/${params.REVISION}/[^"]+\\"/{print \$2}' | grep -oE '[^/]+$' | grep -v '^\.gitattributes\$'
+                    """,
+                    returnStdout: true
+                ).trim().split('\n')
+    
+                for (file in files) {
+                    def url = "${HUGGINGFACE_URL}/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
+                    def outputPath = "${modelPath}/${file}"
+                    def exitCode = sh(
                         script: """
-                            curl -sL "${HUGGINGFACE_URL}/${params.MODEL_NAME}/tree/${params.REVISION}" | \
-                            grep -oP "href=\"/${params.MODEL_NAME}/blob/${params.REVISION}/[^>]+>([^<]+)<" | sed -E 's/href="[^>]+>([^<]+)<.*/\\\\1/' | grep -v '^\.gitattributes\$'
+                            wget --header="Authorization: Bearer $HUGGINGFACE_API_TOKEN" -q ${url} -O ${outputPath} || \
+                            curl -H "Authorization: Bearer $HUGGINGFACE_API_TOKEN" -sSL ${url} -o ${outputPath}
                         """,
-                        returnStdout: true
-                    ).trim().split('\n')
-        
-                    for (file in files) {
-                        def url = "${HUGGINGFACE_URL}/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
-                        def outputPath = "${modelPath}/${file}"
-                        def exitCode = sh(
-                            script: """
-                                wget --header="Authorization: Bearer $HUGGINGFACE_API_TOKEN" -q ${url} -O ${outputPath} || \
-                                curl -H "Authorization: Bearer $HUGGINGFACE_API_TOKEN" -sSL ${url} -o ${outputPath}
-                            """,
-                            returnStatus: true
-                        )
-                        if (exitCode != 0) {
-                            error "Ошибка при загрузке ${file}"
-                        }
+                        returnStatus: true
+                    )
+                    if (exitCode != 0) {
+                        error "Ошибка при загрузке ${file}"
                     }
                 }
             }
         }
+    }
         stage('Сохраняем модель в MinIO') {
             steps {
                 script {
