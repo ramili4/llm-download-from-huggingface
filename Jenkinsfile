@@ -25,7 +25,7 @@ pipeline {
                     def files = sh(
                         script: """
                             curl -sL "${HUGGINGFACE_URL}/${params.MODEL_NAME}/tree/${params.REVISION}" | \
-                            grep -oP "href=\"/${params.MODEL_NAME}/blob/${params.REVISION}/[^>]+>([^<]+)<" | sed -E 's/href="[^>]+>([^<]+)<.*/\\1/' | grep -v '^\.gitattributes\$'
+                            grep -oP "href=\"/${params.MODEL_NAME}/blob/${params.REVISION}/[^>]+>([^<]+)<" | sed -E 's/href="[^>]+>([^<]+)<.*/\\\\1/' | grep -v '^\.gitattributes\$'
                         """,
                         returnStdout: true
                     ).trim().split('\n')
