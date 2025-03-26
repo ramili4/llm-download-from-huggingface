@@ -28,13 +28,13 @@ pipeline {
                         MODEL_NAME="${params.MODEL_NAME}"
                         REVISION="${params.REVISION}"
                         curl -sL "${HUGGINGFACE_URL}/\${MODEL_NAME}/tree/\${REVISION}" | \
-                        awk -F'"' '/href="\/'"'\${MODEL_NAME}'"'\/blob\/'"'\${REVISION}'"'/ {print \$2}' | \
+                        awk -F'\\"' '\$0 ~ "/\${MODEL_NAME}/blob/\${REVISION}/" {print \$2}' | \
                         grep -oE '[^/]+$' | grep -v '^\\.gitattributes\$'
                     """,
                     returnStdout: true
                 ).trim().split('\n')
     
-                if (files.isEmpty()) {
+                if (files.isEmpty() || files[0] == '') {
                     error "Не удалось найти файлы модели ${params.MODEL_NAME} с ревизией ${params.REVISION}"
                 }
     
@@ -55,6 +55,7 @@ pipeline {
             }
         }
     }
+
 
 
         stage('Сохраняем модель в MinIO') {
