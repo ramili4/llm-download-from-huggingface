@@ -33,33 +33,37 @@ pipeline {
 
         stage('Download Model') {
             steps {
-                script {
-                    def modelFiles = []
-                    switch(env.MODEL_TYPE) {
-                        case "pytorch":
-                            modelFiles = ["pytorch_model.bin", "config.json"]
-                            break
-                        case "tensorflow":
-                            modelFiles = ["tf_model.h5", "config.json"]
-                            break
-                        case "onnx":
-                            modelFiles = ["model.onnx", "config.json"]
-                            break
-                        default:
-                            error "Unsupported model type: ${env.MODEL_TYPE}"
-                    }
-
-                    sh "mkdir -p models/${env.MODEL_NAME}"
-                    for (file in modelFiles) {
-                        sh """
-                            wget --header='Authorization: Bearer $HUGGINGFACE_API_TOKEN' \
-                                 -q ${HUGGINGFACE_URL}/${env.MODEL_NAME}/resolve/${env.REVISION}/${file} \
-                                 -O models/${env.MODEL_NAME}/${file}
-                        """
+                withCredentials([string(credentialsId: 'huggingface-token', variable: 'HUGGINGFACE_API_TOKEN')]) {
+                    script {
+                        def modelFiles = []
+                        switch(env.MODEL_TYPE) {
+                            case "pytorch":
+                                modelFiles = ["pytorch_model.bin", "config.json"]
+                                break
+                            case "tensorflow":
+                                modelFiles = ["tf_model.h5", "config.json"]
+                                break
+                            case "onnx":
+                                modelFiles = ["model.onnx", "config.json"]
+                                break
+                            default:
+                                error "Unsupported model type: ${env.MODEL_TYPE}"
+                        }
+        
+                        sh "mkdir -p models/${env.MODEL_NAME}"
+                        
+                        for (file in modelFiles) {
+                            sh """
+                                wget --header="Authorization: Bearer \${HUGGINGFACE_API_TOKEN}" \
+                                     -q ${HUGGINGFACE_URL}/${env.MODEL_NAME}/resolve/main/${file} \
+                                     -O models/${env.MODEL_NAME}/${file} || { echo "Ошибка при загрузке ${file}"; exit 1; }
+                            """
+                        }
                     }
                 }
             }
         }
+
 
         stage('Сохраняем модель в MinIO') {
             steps {
