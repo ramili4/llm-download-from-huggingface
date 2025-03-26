@@ -22,17 +22,24 @@ pipeline {
                 script {
                     def modelPath = "models/${params.MODEL_NAME}"
                     sh "mkdir -p ${modelPath}"
-                    def files = sh(
+                    
+                    // Use Hugging Face API to list files
+                    def filesResponse = sh(
                         script: """
-                            curl -sL "https://huggingface.co/${params.MODEL_NAME}/tree/${params.REVISION}" | \
-                            awk -F\\\" '/href=\\"\\/.*('"${params.MODEL_NAME}"')\\/blob\\/('"${params.REVISION}"')\\// {print \$2}' | \
-                            grep -oE '[^/]+\$' | grep -v '^\\.gitattributes\$'
+                            curl -s -H "Authorization: Bearer ${HUGGINGFACE_API_TOKEN}" \
+                            "https://huggingface.co/api/models/${params.MODEL_NAME}/tree/${params.REVISION}"
                         """,
                         returnStdout: true
-                    ).trim().split('\n')
-                    if (files.isEmpty() || files[0] == '') {
+                    ).trim()
+                    
+                    def files = new groovy.json.JsonSlurperClassic().parseText(filesResponse)
+                        .findAll { it.type == 'file' && it.path != '.gitattributes' }
+                        .collect { it.path }
+                    
+                    if (files.isEmpty()) {
                         error "Не удалось найти файлы модели ${params.MODEL_NAME} с ревизией ${params.REVISION}"
                     }
+                    
                     for (file in files) {
                         def url = "https://huggingface.co/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
                         def outputPath = "${modelPath}/${file}"
