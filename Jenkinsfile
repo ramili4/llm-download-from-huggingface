@@ -6,10 +6,10 @@ pipeline {
     }
 
     environment {
-        MINIO_ALIAS = "minio"
-        MINIO_BUCKET = "models"
+        MINIO_URL = "http://minio-server:9000"
+        BUCKET_NAME = "models"
         HUGGINGFACE_URL = "https://huggingface.co"
-        HUGGINGFACE_API_TOKEN = credentials('huggingface-token')  // Загружаем токен Hugging Face
+        HUGGINGFACE_API_TOKEN = credentials('huggingface-token')
     }
 
     stages {
@@ -25,7 +25,7 @@ pipeline {
                     def config = readJSON file: params.CONFIG_PATH
                     env.MODEL_NAME = config.model_name
                     env.MODEL_TYPE = config.model_type
-                    env.REVISION = config.revision ?: "main"  // По умолчанию берем "main"
+                    env.REVISION = config.revision ?: "main"  // Default revision is "main"
                     echo "Model: ${env.MODEL_NAME}, Type: ${env.MODEL_TYPE}, Revision: ${env.REVISION}"
                 }
             }
@@ -61,15 +61,30 @@ pipeline {
             }
         }
 
-        stage('Upload to MinIO') {
+        stage('Сохраняем модель в MinIO') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'minio-creds', usernameVariable: 'MINIO_ACCESS_KEY', passwordVariable: 'MINIO_SECRET_KEY')]) {
-                    script {
+                script {
+                    def modelPath = "${WORKSPACE}/models/${env.MODEL_NAME}"
+                    def modelFiles = sh(script: "ls -A ${modelPath} | wc -l", returnStdout: true).trim()
+
+                    if (modelFiles.toInteger() == 0) {
+                        error("Ошибка: Папка для модели пуста! Выходим..")
+                    }
+
+                    withCredentials([usernamePassword(credentialsId: 'minio-credentials', usernameVariable: 'MINIO_USER', passwordVariable: 'MINIO_PASS')]) {
                         sh """
-                            mc alias set ${MINIO_ALIAS} http://minio-server:9000 $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
-                            mc cp --recursive models/${env.MODEL_NAME} ${MINIO_ALIAS}/${MINIO_BUCKET}/
+                            /usr/local/bin/mc alias set myminio ${MINIO_URL} ${MINIO_USER} ${MINIO_PASS} --quiet || true
+
+                            if ! /usr/local/bin/mc ls myminio/${BUCKET_NAME} >/dev/null 2>&1; then
+                                echo "Creating bucket ${BUCKET_NAME}..."
+                                /usr/local/bin/mc mb myminio/${BUCKET_NAME}
+                            fi
+
+                            /usr/local/bin/mc cp --recursive ${modelPath} myminio/${BUCKET_NAME}/
                         """
                     }
+                    
+                    echo "✅ Модель успешно сохранена в MinIO"
                 }
             }
         }
