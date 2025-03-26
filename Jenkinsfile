@@ -1,103 +1,90 @@
-pipeline {
-    agent any
-
-    parameters {
-        string(name: 'CONFIG_PATH', defaultValue: 'config.json', description: 'Path to config.json')
-    }
-
-    environment {
-        MINIO_URL = "http://localhost:9000"
-        BUCKET_NAME = "models"
-        HUGGINGFACE_URL = "https://huggingface.co"
-        HUGGINGFACE_API_TOKEN = credentials('huggingface-token')
-    }
-
-    stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
+stage('Download Model') {
+    steps {
+        script {
+            // Enhanced logging and error checking for model downloads
+            def MIN_MODEL_FILE_SIZE = 1024 * 1024 * 1024 // 1 GB in bytes
+            def modelFiles = []
+            
+            // Validate input parameters
+            if (!env.MODEL_NAME) {
+                error "MODEL_NAME must be specified"
             }
-        }
+            if (!env.MODEL_TYPE) {
+                error "MODEL_TYPE must be specified"
+            }
+            
+            // Determine model files based on model type with more validation
+            switch(env.MODEL_TYPE) {
+                case "pytorch":
+                    modelFiles = ["pytorch_model.bin", "config.json"]
+                    break
+                case "tensorflow":
+                    modelFiles = ["tf_model.h5", "config.json"]
+                    break
+                case "onnx":
+                    modelFiles = ["model.onnx", "config.json"]
+                    break
+                default:
+                    error "Unsupported model type: ${env.MODEL_TYPE}"
+            }
 
-        stage('Load Config') {
-            steps {
-                script {
-                    def config = readJSON file: params.CONFIG_PATH
-                    env.MODEL_NAME = config.model_name
-                    env.MODEL_TYPE = config.model_type
-                    env.REVISION = config.revision ?: "main"  // Default revision is "main"
-                    echo "Model: ${env.MODEL_NAME}, Type: ${env.MODEL_TYPE}, Revision: ${env.REVISION}"
+            // Create model directory with full path
+            sh "mkdir -p models/${env.MODEL_NAME}"
+
+            // Comprehensive download and validation for each file
+            for (file in modelFiles) {
+                def url = "${HUGGINGFACE_URL}/${env.MODEL_NAME}/resolve/main/${file}"
+                def outputPath = "models/${env.MODEL_NAME}/${file}"
+
+                // Verbose download script with multiple download methods and logging
+                def downloadScript = """
+                    echo "Attempting to download: ${file}"
+                    echo "URL: ${url}"
+                    
+                    # Attempt download with wget
+                    wget --header="Authorization: Bearer $HUGGINGFACE_API_TOKEN" \
+                         --content-disposition \
+                         --continue \
+                         --max-redirect=10 \
+                         --verbose \
+                         -O ${outputPath} "${url}" || true
+
+                    # If wget fails, try curl
+                    if [ ! -s "${outputPath}" ]; then
+                        echo "wget failed, trying curl"
+                        curl -H "Authorization: Bearer $HUGGINGFACE_API_TOKEN" \
+                             -sSL \
+                             --max-time 3600 \
+                             --retry 3 \
+                             --retry-delay 10 \
+                             -o ${outputPath} "${url}" || true
+                    fi
+
+                    # Check file size and integrity
+                    FILE_SIZE=$(stat -c%s "${outputPath}")
+                    echo "Downloaded file size: $FILE_SIZE bytes"
+
+                    if [ $FILE_SIZE -lt ${MIN_MODEL_FILE_SIZE} ]; then
+                        echo "ERROR: File too small (${file})"
+                        exit 1
+                    fi
+                """
+
+                def exitCode = sh(
+                    script: downloadScript,
+                    returnStatus: true
+                )
+
+                if (exitCode != 0) {
+                    error "Failed to download or validate ${file}. Check logs for details."
                 }
             }
-        }
 
-    stage('Download Model') {
-        steps {
-            script {
-                def modelFiles = []
-                switch(env.MODEL_TYPE) {
-                    case "pytorch":
-                        modelFiles = ["pytorch_model.bin", "config.json"]
-                        break
-                    case "tensorflow":
-                        modelFiles = ["tf_model.h5", "config.json"]
-                        break
-                    case "onnx":
-                        modelFiles = ["model.onnx", "config.json"]
-                        break
-                    default:
-                        error "Unsupported model type: ${env.MODEL_TYPE}"
-                }
-    
-                sh "mkdir -p models/${env.MODEL_NAME}"
-                for (file in modelFiles) {
-                    def url = "${HUGGINGFACE_URL}/${env.MODEL_NAME}/resolve/main/${file}"
-                    def outputPath = "models/${env.MODEL_NAME}/${file}"
-    
-                    // Пробуем скачать с помощью wget, если ошибка — используем curl
-                    def exitCode = sh(
-                        script: """
-                            wget --header="Authorization: Bearer $HUGGINGFACE_API_TOKEN" -q ${url} -O ${outputPath} || \
-                            curl -H "Authorization: Bearer $HUGGINGFACE_API_TOKEN" -sSL ${url} -o ${outputPath}
-                        """,
-                        returnStatus: true
-                    )
-    
-                    if (exitCode != 0) {
-                        error "Ошибка при загрузке ${file}"
-                    }
-                }
-            }
-        }
-    }
-
-
-    stage('Сохраняем модель в MinIO') {
-        steps {
-            script {
-                def modelPath = "${WORKSPACE}/models/${env.MODEL_NAME}"
-                def modelFiles = sh(script: "ls -A ${modelPath} | wc -l", returnStdout: true).trim()
-
-                if (modelFiles.toInteger() == 0) {
-                    error("Ошибка: Папка для модели пуста! Выходим..")
-                }
-
-                withCredentials([usernamePassword(credentialsId: 'minio-credentials', usernameVariable: 'MINIO_USER', passwordVariable: 'MINIO_PASS')]) {
-                    sh """
-                        /usr/local/bin/mc alias set myminio ${MINIO_URL} ${MINIO_USER} ${MINIO_PASS} --quiet || true
-
-                        if ! /usr/local/bin/mc ls myminio/${BUCKET_NAME} >/dev/null 2>&1; then
-                            echo "Creating bucket ${BUCKET_NAME}..."
-                            /usr/local/bin/mc mb myminio/${BUCKET_NAME}
-                        fi
-
-                        /usr/local/bin/mc cp --recursive ${modelPath} myminio/${BUCKET_NAME}/
-                    """
-                }
-                
-                echo "✅ Модель успешно сохранена в MinIO"
-            }
+            // Optional: Additional model validation
+            sh """
+                echo "Model download complete. Contents:"
+                ls -lh models/${env.MODEL_NAME}
+            """
         }
     }
-}
 }
