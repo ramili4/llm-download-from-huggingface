@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  jenkins:
+    image: jenkins-docker:latest
+    network_mode: "host"
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - ~/.kube:/home/jenkins/.kube
+      - /mnt/d/my_models:/opt/ml-models-wsl  # Mount your local folder
+      - /var/run/docker.sock:/var/run/docker.sock # Only if you need docker-in-docker
+    user: 1000:1001
+    depends_on:
+      - jenkins-docker # Only if you need docker-in-docker
+      - minio
+      - nexus
+
+  jenkins-docker: # Only if you need docker-in-docker
+    image: docker:dind
+    network_mode: "host"
+    privileged: true
+    volumes:
+      - jenkins-docker-certs:/certs/client
+
+  minio:
+    image: minio/minio
+    network_mode: "host" 
+    command: server --console-address ":9001" /data
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=admin123
+    ports:
+      - "9000:9000"  # MinIO S3 API
+      - "9001:9001"  # MinIO Web Console
+    volumes:
+      - minio_data:/data
+
+  nexus:
+    image: sonatype/nexus3:3.45.0
+    network_mode: "host"
+    container_name: nexus
+    ports:
+      - "8081:8081"  # Nexus Web UI
+      - "8082:8082"  # REST API
+    volumes:
+      - nexus-data:/nexus-data
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:
+  jenkins-docker-certs:
+  minio_data:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=5G"
+  nexus-data:
+
+
+networks:
+  host:
+
