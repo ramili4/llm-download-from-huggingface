@@ -2,8 +2,8 @@ pipeline {
     agent any
     
     parameters {
-        string(name: 'MODEL_NAME', description: 'Hugging Face model name (e.g., microsoft/phi-2)', defaultValue: '')
-        string(name: 'REVISION', description: 'Model revision (branch or tag)', defaultValue: 'main')
+        string(name: 'MODEL_NAME', description: 'Hugging Face model name', defaultValue: '')
+        string(name: 'REVISION', description: 'Model revision', defaultValue: 'main')
         choice(name: 'DOWNLOAD_STRATEGY', 
             choices: [
                 'all', 
@@ -12,14 +12,13 @@ pipeline {
                 'config_only', 
                 'tokenizer_only'
             ], 
-            description: 'Select which files to download')
+            description: 'Select download strategy')
     }
     
     environment {
         HUGGINGFACE_URL = "https://huggingface.co"
         MINIO_URL = "http://localhost:9000"
         BUCKET_NAME = "models"
-        // Ensure credentials are set up in Jenkins
         HUGGINGFACE_API_TOKEN = credentials('huggingface-token')
     }
     
@@ -28,12 +27,12 @@ pipeline {
             steps {
                 script {
                     if (!params.MODEL_NAME) {
-                        error "Model name is required. Please provide a valid Hugging Face model name."
+                        error "Model name is required!"
                     }
                     
-                    echo "🔍 Preparing to download model: ${params.MODEL_NAME}"
-                    echo "📦 Revision: ${params.REVISION}"
-                    echo "🗂️ Download Strategy: ${params.DOWNLOAD_STRATEGY}"
+                    echo "Downloading model: ${params.MODEL_NAME}"
+                    echo "Revision: ${params.REVISION}"
+                    echo "Strategy: ${params.DOWNLOAD_STRATEGY}"
                 }
             }
         }
@@ -43,9 +42,8 @@ pipeline {
                 script {
                     def modelPath = "models/${params.MODEL_NAME}"
                     sh """
-                        mkdir -p ${modelPath}
-                        # Ensure directory is clean
-                        rm -rf ${modelPath}/*
+                        mkdir -p '${modelPath}'
+                        rm -rf '${modelPath}'/*
                     """
                 }
             }
@@ -69,7 +67,7 @@ pipeline {
                     def files = []
                     def jsonText = filesResponse.content
                     
-                    // Advanced file filtering based on download strategy
+                    // File filtering strategies
                     def fileFilters = [
                         'all': { file -> true },
                         'model_files_only': { file -> 
@@ -99,12 +97,12 @@ pipeline {
                     }
                     
                     if (files.isEmpty()) {
-                        error "No matching files found for model ${params.MODEL_NAME} with strategy ${params.DOWNLOAD_STRATEGY}"
+                        error "No matching files found for model ${params.MODEL_NAME}"
                     }
                     
                     // Store files for next stage
                     env.MODEL_FILES = files.join(',')
-                    echo "📥 Files to download: ${env.MODEL_FILES}"
+                    echo "Files to download: ${env.MODEL_FILES}"
                 }
             }
         }
@@ -116,33 +114,34 @@ pipeline {
                     def files = env.MODEL_FILES.split(',')
                     
                     files.each { file ->
-                        def url = "${env.HUGGINGFACE_URL}/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
+                        def encodedFile = URLEncoder.encode(file, 'UTF-8')
+                        def url = "${env.HUGGINGFACE_URL}/${params.MODEL_NAME}/resolve/${params.REVISION}/${encodedFile}"
                         def outputPath = "${modelPath}/${file}"
                         
                         // Robust download with multiple methods
-                        sh """
+                        sh '''
                             set +e
                             
-                            # Try wget first
-                            wget -q --tries=3 --timeout=300 \
-                                --header="Authorization: Bearer ${env.HUGGINGFACE_API_TOKEN}" \
-                                "${url}" -O "${outputPath}"
+                            # Download with wget
+                            wget -q --tries=3 --timeout=300 \\
+                                --header="Authorization: Bearer ''' + env.HUGGINGFACE_API_TOKEN + '''" \\
+                                "''' + url + '''" -O "''' + outputPath + '''"
                             
                             # If wget fails, try curl
                             if [ $? -ne 0 ]; then
-                                curl -sSL -m 300 \
-                                    -H "Authorization: Bearer ${env.HUGGINGFACE_API_TOKEN}" \
-                                    "${url}" -o "${outputPath}"
+                                curl -sSL -m 300 \\
+                                    -H "Authorization: Bearer ''' + env.HUGGINGFACE_API_TOKEN + '''" \\
+                                    "''' + url + '''" -o "''' + outputPath + '''"
                             fi
                             
                             # Verify download
-                            if [ ! -s "${outputPath}" ]; then
-                                echo "❌ Failed to download ${file}"
+                            if [ ! -s "''' + outputPath + '''" ]; then
+                                echo "Failed to download ''' + file + '''"
                                 exit 1
                             fi
-                        """
+                        '''
                         
-                        echo "✅ Downloaded: ${file}"
+                        echo "Downloaded: ${file}"
                     }
                 }
             }
@@ -155,12 +154,12 @@ pipeline {
                     
                     // Verify files were downloaded
                     def modelFiles = sh(
-                        script: "ls -A ${modelPath} | wc -l", 
+                        script: "ls -A '${modelPath}' | wc -l", 
                         returnStdout: true
                     ).trim()
                     
                     if (modelFiles.toInteger() == 0) {
-                        error "❌ Model download directory is empty!"
+                        error "Model download directory is empty!"
                     }
                     
                     // Upload to MinIO with credentials
@@ -171,21 +170,21 @@ pipeline {
                             passwordVariable: 'MINIO_PASS'
                         )
                     ]) {
-                        sh """
+                        sh '''
                             # Configure MinIO client
-                            /usr/local/bin/mc alias set myminio ${MINIO_URL} ${MINIO_USER} ${MINIO_PASS} --quiet || true
+                            /usr/local/bin/mc alias set myminio "''' + env.MINIO_URL + '''" "''' + env.MINIO_USER + '''" "''' + env.MINIO_PASS + '''" --quiet || true
                             
                             # Create bucket if not exists
-                            if ! /usr/local/bin/mc ls myminio/${BUCKET_NAME} >/dev/null 2>&1; then
-                                /usr/local/bin/mc mb myminio/${BUCKET_NAME}
+                            if ! /usr/local/bin/mc ls myminio/''' + env.BUCKET_NAME + ''' >/dev/null 2>&1; then
+                                /usr/local/bin/mc mb myminio/''' + env.BUCKET_NAME + '''
                             fi
                             
                             # Copy model files
-                            /usr/local/bin/mc cp --recursive ${modelPath} myminio/${BUCKET_NAME}/
-                        """
+                            /usr/local/bin/mc cp --recursive "''' + modelPath + '''" myminio/''' + env.BUCKET_NAME + '''/
+                        '''
                     }
                     
-                    echo "✅ Model successfully stored in MinIO"
+                    echo "Model successfully stored in MinIO"
                 }
             }
         }
@@ -193,14 +192,14 @@ pipeline {
     
     post {
         success {
-            echo "🎉 Model download and storage completed successfully!"
+            echo "Model download and storage completed successfully!"
         }
         failure {
-            echo "❌ Model download or storage failed. Check logs for details."
+            echo "Model download or storage failed. Check logs for details."
         }
         cleanup {
             script {
-                // Optional: Clean up local model files
+                // Clean up local model files
                 sh "rm -rf models/${params.MODEL_NAME}"
             }
         }
