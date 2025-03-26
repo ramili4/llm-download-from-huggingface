@@ -31,38 +31,45 @@ pipeline {
             }
         }
 
-        stage('Download Model') {
-            steps {
-                withCredentials([string(credentialsId: 'huggingface-token', variable: 'HUGGINGFACE_API_TOKEN')]) {
-                    script {
-                        def modelFiles = []
-                        switch(env.MODEL_TYPE) {
-                            case "pytorch":
-                                modelFiles = ["pytorch_model.bin", "config.json"]
-                                break
-                            case "tensorflow":
-                                modelFiles = ["tf_model.h5", "config.json"]
-                                break
-                            case "onnx":
-                                modelFiles = ["model.onnx", "config.json"]
-                                break
-                            default:
-                                error "Unsupported model type: ${env.MODEL_TYPE}"
-                        }
-        
-                        sh "mkdir -p models/${env.MODEL_NAME}"
-                        
-                        for (file in modelFiles) {
-                            sh """
-                                wget --header="Authorization: Bearer \${HUGGINGFACE_API_TOKEN}" \
-                                     -q ${HUGGINGFACE_URL}/${env.MODEL_NAME}/resolve/main/${file} \
-                                     -O models/${env.MODEL_NAME}/${file} || { echo "Ошибка при загрузке ${file}"; exit 1; }
-                            """
-                        }
+    stage('Download Model') {
+        steps {
+            script {
+                def modelFiles = []
+                switch(env.MODEL_TYPE) {
+                    case "pytorch":
+                        modelFiles = ["pytorch_model.bin", "config.json"]
+                        break
+                    case "tensorflow":
+                        modelFiles = ["tf_model.h5", "config.json"]
+                        break
+                    case "onnx":
+                        modelFiles = ["model.onnx", "config.json"]
+                        break
+                    default:
+                        error "Unsupported model type: ${env.MODEL_TYPE}"
+                }
+    
+                sh "mkdir -p models/${env.MODEL_NAME}"
+                for (file in modelFiles) {
+                    def url = "${HUGGINGFACE_URL}/${env.MODEL_NAME}/resolve/main/${file}"
+                    def outputPath = "models/${env.MODEL_NAME}/${file}"
+    
+                    // Пробуем скачать с помощью wget, если ошибка — используем curl
+                    def exitCode = sh(
+                        script: """
+                            wget --header="Authorization: Bearer $HUGGINGFACE_API_TOKEN" -q ${url} -O ${outputPath} || \
+                            curl -H "Authorization: Bearer $HUGGINGFACE_API_TOKEN" -sSL ${url} -o ${outputPath}
+                        """,
+                        returnStatus: true
+                    )
+    
+                    if (exitCode != 0) {
+                        error "Ошибка при загрузке ${file}"
                     }
                 }
             }
         }
+    }
 
 
         stage('Сохраняем модель в MinIO') {
