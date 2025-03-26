@@ -17,43 +17,40 @@ pipeline {
             }
         }
        
-    stage('Download Model') {
-        steps {
-            script {
-                def modelPath = "models/${params.MODEL_NAME}"
-                sh "mkdir -p ${modelPath}"
-    
-                def files = sh(
-                    script: """
-                        curl -sL "${HUGGINGFACE_URL}/${params.MODEL_NAME}/tree/${params.REVISION}" | \
-                        awk -F'"' '/href="\\/.*${params.MODEL_NAME}\\/blob\\/${params.REVISION}\\// {print \$2}' | \
-                        grep -oE '[^/]+$' | grep -v '^\\.gitattributes\$'
-                    """,
-                    returnStdout: true
-                ).trim().split('\n')
-    
-                if (files.isEmpty() || files[0] == '') {
-                    error "Не удалось найти файлы модели ${params.MODEL_NAME} с ревизией ${params.REVISION}"
-                }
-    
-                for (file in files) {
-                    def url = "${HUGGINGFACE_URL}/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
-                    def outputPath = "${modelPath}/${file}"
-                    def exitCode = sh(
+       stage('Download Model') {
+            steps {
+                script {
+                    def modelPath = "models/${params.MODEL_NAME}"
+                    sh "mkdir -p ${modelPath}"
+                    def files = sh(
                         script: """
-                            wget --header="Authorization: Bearer ${HUGGINGFACE_API_TOKEN}" -q ${url} -O ${outputPath} || \
-                            curl -H "Authorization: Bearer ${HUGGINGFACE_API_TOKEN}" -sSL ${url} -o ${outputPath}
+                            curl -sL "${HUGGINGFACE_URL}/${params.MODEL_NAME}/tree/${params.REVISION}" | \
+                            awk -F'"' '/href="\\/.*'"${params.MODEL_NAME}"'\\/blob\\/'"${params.REVISION}"'\\// {print \$2}' | \
+                            grep -oE '[^/]+\$' | grep -v '^\\.gitattributes\$'
                         """,
-                        returnStatus: true
-                    )
-                    if (exitCode != 0) {
-                        error "Ошибка при загрузке ${file} из ${url}"
+                        returnStdout: true
+                    ).trim().split('\n')
+                    if (files.isEmpty() || files[0] == '') {
+                        error "Не удалось найти файлы модели ${params.MODEL_NAME} с ревизией ${params.REVISION}"
+                    }
+                    for (file in files) {
+                        def url = "${HUGGINGFACE_URL}/${params.MODEL_NAME}/resolve/${params.REVISION}/${file}"
+                        def outputPath = "${modelPath}/${file}"
+                        def exitCode = sh(
+                            script: """
+                                wget --header="Authorization: Bearer ${HUGGINGFACE_API_TOKEN}" -q ${url} -O ${outputPath} || \
+                                curl -H "Authorization: Bearer ${HUGGINGFACE_API_TOKEN}" -sSL ${url} -o ${outputPath}
+                            """,
+                            returnStatus: true
+                        )
+                        if (exitCode != 0) {
+                            error "Ошибка при загрузке ${file} из ${url}"
+                        }
                     }
                 }
             }
         }
-    }
-
+    
 
 
 
