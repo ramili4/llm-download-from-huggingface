@@ -1,4 +1,4 @@
 {
-    "model_name": "google/mobilenet_v2_1.0_224",
-    "model_type": "tensorflow"
+    "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "model_type": "pytorch"
 }
