@@ -1,4 +1,4 @@
 {
-    "model_name": "bert-base-uncased",
-    "model_type": "pytorch"
+    "model_name": "squeezenet1.0",
+    "model_type": "onnx"
 }
