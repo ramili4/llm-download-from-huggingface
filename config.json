@@ -1,4 +1,4 @@
 {
-    "model_name": "squeezenet1.0",
+    "model_name": "mobilenetv2",
     "model_type": "onnx"
 }
