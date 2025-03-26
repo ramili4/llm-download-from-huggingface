@@ -1,5 +1,4 @@
 {
-  "model_name": "microsoft/phi-2",
-  "file_name": "pytorch_model.bin",
-  "model_type": "pytorch"
+    "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "model_type": "pytorch"
 }
