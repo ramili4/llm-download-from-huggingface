@@ -25,10 +25,8 @@ pipeline {
     
                 def files = sh(
                     script: """
-                        MODEL_NAME="${params.MODEL_NAME}"
-                        REVISION="${params.REVISION}"
-                        curl -sL "${HUGGINGFACE_URL}/\${MODEL_NAME}/tree/\${REVISION}" | \
-                        awk -F'\\"' '\$0 ~ "/\${MODEL_NAME}/blob/\${REVISION}/" {print \$2}' | \
+                        curl -sL "${HUGGINGFACE_URL}/${params.MODEL_NAME}/tree/${params.REVISION}" | \
+                        awk -F'"' '\$0 ~ "/${params.MODEL_NAME}/blob/${params.REVISION}/" {print \$2}' | \
                         grep -oE '[^/]+$' | grep -v '^\\.gitattributes\$'
                     """,
                     returnStdout: true
@@ -55,6 +53,7 @@ pipeline {
             }
         }
     }
+
 
 
 
