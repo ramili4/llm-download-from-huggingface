@@ -26,7 +26,7 @@ pipeline {
                         script: """
                             curl -sL "https://huggingface.co/${params.MODEL_NAME}/tree/${params.REVISION}" | \
                             awk -F'"' '/href="\\/.*${params.MODEL_NAME}\\/blob\\/${params.REVISION}\\// {print \$2}' | \
-                            grep -oE '[^/]+\$' | grep -v '^\\\.gitattributes\$'
+                            grep -oE '[^/]+\$' | grep -v '^.gitattributes\$'
                         """,
                         returnStdout: true
                     ).trim().split('\n')
@@ -50,7 +50,6 @@ pipeline {
                 }
             }
         }
-
         stage('Сохраняем модель в MinIO') {
             steps {
                 script {
